@@ -226,14 +226,23 @@ describe("Utils", function()
         assert.equal("b=false", str)
       end)
       it("should encode complex query args", function()
-        local str = utils.encode_args {
-          array = {"hello, world"},
-          hash = { answer = 42 },
-          hello = "world",
-          falsy = false,
-          ["multiple values"] = true
-        }
-        assert.equal("array%5b1%5d=hello%2c%20world&falsy=false&hash%2eanswer=42&hello=world&multiple%20values=true", str)
+        local encode = utils.encode_args
+        assert.equal("falsy=false",
+                     encode({ falsy = false }))
+        assert.equal("multiple%20values=true",
+                     encode({ ["multiple values"] = true }))
+        assert.equal("array%5b1%5d=hello%2c%20world",
+                     encode({ array = {"hello, world"} }))
+        assert.equal("hash%2eanswer=42",
+                     encode({ hash = { answer = 42 } }))
+        assert.equal("hash_array%2earr%5b1%5d=one&hash_array%2earr%5b2%5d=two",
+                     encode({ hash_array = { arr = { "one", "two" } } }))
+        assert.equal("array_hash%5b1%5d%2ename=peter",
+                     encode({ array_hash = { { name = "peter" } } }))
+        assert.equal("array_array%5b1%5d%5b1%5d=x&array_array%5b1%5d%5b2%5d=y",
+                     encode({ array_array = { { "x", "y" } } }))
+        assert.equal("hybrid%5b1%5d=1&hybrid%5b2%5d=2&hybrid%2en=3",
+                     encode({ hybrid = { 1, 2, n = 3 } }))
       end)
       it("should not interpret the `%` character followed by 2 characters in the [0-9a-f] group as an hexadecimal value", function()
         local str = utils.encode_args {
@@ -242,11 +251,20 @@ describe("Utils", function()
         assert.equal("foo=%25bar%25", str)
       end)
       it("should not percent-encode if given a `raw` option", function()
+        local encode = utils.encode_args
         -- this is useful for kong.tools.http_client
-        local str = utils.encode_args({
-          ["hello world"] = "foo, bar"
-        }, true)
-        assert.equal("hello world=foo, bar", str)
+        assert.equal("hello world=foo, bar",
+                     encode({ ["hello world"] = "foo, bar" }, true))
+        assert.equal("hash.answer=42",
+                     encode({ hash = { answer = 42 } }, true))
+        assert.equal("hash_array.arr[1]=one&hash_array.arr[2]=two",
+                     encode({ hash_array = { arr = { "one", "two" } } }, true))
+        assert.equal("array_hash[1].name=peter",
+                     encode({ array_hash = { { name = "peter" } } }, true))
+        assert.equal("array_array[1][1]=x&array_array[1][2]=y",
+                     encode({ array_array = { { "x", "y" } } }, true))
+        assert.equal("hybrid[1]=1&hybrid[2]=2&hybrid.n=3",
+                     encode({ hybrid = { 1, 2, n = 3 } }, true))
       end)
       it("transforms ngx.null into empty string", function()
         local str = utils.encode_args({ x = ngx.null, y = "foo" })
