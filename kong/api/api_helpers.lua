@@ -1,10 +1,8 @@
-local pl_string = require "pl.stringx"
 local utils = require "kong.tools.utils"
 local cjson = require "cjson"
 
 local type = type
 local pairs = pairs
-local remove = table.remove
 
 local _M = {}
 
@@ -15,6 +13,33 @@ local function parse_value(v)
   return type(v) == "table" and v.content or v -- Handle multipart
 end
 
+
+-- given a string like "x[1].y", return an array of indices like {"x", 1, "y"}
+-- the path parameter is an output-only param. the keys are added to it in order
+local function key_to_path(key, path)
+  -- try to match an array access like x[1]
+  local left, array_index = key:match("^(.+)%[(%d+)]$")
+  if left then
+    key_to_path(left, path)
+    path[#path + 1] = tonumber(array_index)
+    return path
+  end
+
+  -- if no match, try a hash access like x.y (both x and y are mandatory)
+  -- the left side of the dot is called left and the other side is right
+  local left, right = key:match("^(.+)%.(.+)$")
+  if left then
+    key_to_path(left, path)
+    key_to_path(right, path)
+    return path
+  end
+
+  -- if no match found, append the whole key to the path as a single string
+  path[#path + 1] = key
+  return path
+end
+
+
 -- Put nested keys in objects:
 -- Normalize dotted keys in objects.
 -- Example: {["key.value.sub"]=1234} becomes {key = {value = {sub=1234}}
@@ -22,20 +47,6 @@ end
 -- @return `normalized_object`
 function _M.normalize_nested_params(obj)
   local new_obj = {}
-
-  local function attach_dotted_key(keys, attach_to, value)
-    local current_key = keys[1]
-
-    if #keys > 1 then
-      if not attach_to[current_key] then
-        attach_to[current_key] = {}
-      end
-      remove(keys, 1)
-      attach_dotted_key(keys, attach_to[current_key], value)
-    else
-      attach_to[current_key] = value
-    end
-  end
 
   for k, v in pairs(obj) do
     if type(v) == "table" then
@@ -49,15 +60,15 @@ function _M.normalize_nested_params(obj)
       end
     end
 
-    -- normalize sub-keys with dot notation
+    -- normalize sub-keys with hash or array accesses
     if type(k) == "string" then
-      local keys = pl_string.split(k, ".")
-      if #keys > 1 then -- we have a key containing a dot
-        attach_dotted_key(keys, new_obj, parse_value(v))
-
-      else
-        new_obj[k] = parse_value(v) -- nothing special with that key, simply attaching the value
+      local path = key_to_path(k, {})
+      local node = new_obj
+      for i = 1, #path - 1 do
+        node[path[i]] = node[path[i]] or {}
+        node = node[path[i]]
       end
+      node[path[#path]] = parse_value(v)
 
     else
       new_obj[k] = parse_value(v) -- nothing special with that key, simply attaching the value
