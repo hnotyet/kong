@@ -24,8 +24,6 @@ our $HttpConfig = <<_EOC_;
             v.on(outfile)
         end
 
-        require "resty.core"
-
         if os.getenv("PDK_PHASE_CHECKS_LUACOV") == "1" then
             require("luacov.runner")("t/phase_checks.luacov")
             jit.off()
@@ -76,8 +74,6 @@ our $HttpConfig = <<_EOC_;
                 end
             end
 
-            kong = nil
-
             local entries = {}
             for _, entry in ipairs(phase_check_data) do
                 entries[entry.method] = true
@@ -104,9 +100,15 @@ our $HttpConfig = <<_EOC_;
                             fname .. " expected "
 
                 -- Run function with phase checked disabled
-                kong = nil
+		if kong then
+		  kong.ctx = nil
+		end
+		-- kong = nil
 
                 local expected = fdata[phases[phase]]
+                if expected == "pending" then
+                    goto continue
+                end
 
                 local forced_false = expected == "forced false"
                 if forced_false then
@@ -134,7 +136,10 @@ our $HttpConfig = <<_EOC_;
                 end
 
                 -- Re-enable phase checking and compare results
-                kong = { ctx = { core = { phase = phase } } }
+		if not kong then
+		  kong = {}
+		end
+                kong.ctx = { core = { phase = phase } }
 
                 if forced_false then
                     ok1, err1 = false, ""

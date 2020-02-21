@@ -186,7 +186,7 @@ describe("declarative config: validate", function()
               ["host"] = "expected a string",
               ["path"] = "must not have empty segments",
               ["port"] = "value should be between 0 and 65535",
-              ["protocol"] = "expected one of: http, https, tcp, tls",
+              ["protocol"] = "expected one of: grpc, grpcs, http, https, tcp, tls",
               ["retries"] = "value should be between 0 and 32767",
             }
           }
@@ -416,7 +416,7 @@ describe("declarative config: validate", function()
                 ["routes"] = {
                   {
                     ["@entity"] = {
-                      "must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http'",
+                      "must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https'",
                     }
                   }
                 }
@@ -608,6 +608,7 @@ describe("declarative config: validate", function()
           _format_version: "1.1"
           oauth2_credentials:
           - name: my-credential
+            consumer: foo
             redirect_uris:
             - https://example.com
           - name: another-credential
@@ -630,7 +631,6 @@ describe("declarative config: validate", function()
           ["oauth2_credentials"] = {
             {
               ["name"] = "required field missing",
-              ["redirect_uris"] = "required field missing",
             }
           }
         }, err)
@@ -654,6 +654,7 @@ describe("declarative config: validate", function()
         assert.same({
           ["oauth2_credentials"] = {
             {
+              ["consumer"] = "required field missing",
               ["redirect_uris"] = {
                 [2] = "cannot parse 'foobar'",
               }
@@ -695,28 +696,6 @@ describe("declarative config: validate", function()
           ]]))
 
           assert(DeclarativeConfig:validate(config))
-        end)
-
-        it("verifies required fields", function()
-          local ok, err = DeclarativeConfig:validate(lyaml.load([[
-            _format_version: "1.1"
-            consumers:
-            - username: bob
-              oauth2_credentials:
-              - name: foo
-          ]]))
-          assert.falsy(ok)
-          assert.same({
-            ["consumers"] = {
-              {
-                ["oauth2_credentials"] = {
-                  {
-                    ["redirect_uris"] = "required field missing",
-                  }
-                }
-              }
-            }
-          }, err)
         end)
 
         it("performs regular validations", function()
@@ -788,6 +767,7 @@ describe("declarative config: validate", function()
             _format_version: "1.1"
             oauth2_credentials:
             - name: my-credential
+              consumer: bob
               redirect_uris:
               - https://example.com
               oauth2_tokens:
@@ -799,6 +779,7 @@ describe("declarative config: validate", function()
             _format_version: "1.1"
             oauth2_credentials:
             - name: my-credential
+              consumer: bob
               redirect_uris:
               - https://example.com
               oauth2_tokens:
@@ -824,6 +805,7 @@ describe("declarative config: validate", function()
           assert.same({
             ["oauth2_credentials"] = {
               {
+                ["consumer"] = "required field missing",
                 ["oauth2_tokens"] = {
                   {
                     ["expires_in"] = "required field missing",
@@ -839,6 +821,7 @@ describe("declarative config: validate", function()
             _format_version: "1.1"
             oauth2_credentials:
             - name: my-credential
+              consumer: bob
               redirect_uris:
               - https://example.com
               oauth2_tokens:

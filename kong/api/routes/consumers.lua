@@ -1,6 +1,5 @@
 local endpoints = require "kong.api.endpoints"
-local reports = require "kong.reports"
-local utils = require "kong.tools.utils"
+local cjson = require "cjson"
 
 
 local kong = kong
@@ -21,25 +20,12 @@ return {
         end
 
         return kong.response.exit(200, {
-          data = { consumer },
+          data = setmetatable({ consumer }, cjson.array_mt),
           next = null,
         })
       end
 
       return parent()
-    end,
-  },
-
-  ["/consumers/:consumers/plugins"] = {
-    POST = function(_, _, _, parent)
-      local post_process = function(data)
-        local r_data = utils.deep_copy(data)
-        r_data.config = nil
-        r_data.e = "c"
-        reports.send("api", r_data)
-        return data
-      end
-      return parent(post_process)
     end,
   },
 }

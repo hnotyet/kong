@@ -8,7 +8,7 @@ local conf_loader = require "kong.conf_loader"
 local kong_yml = require "kong.templates.kong_yml"
 
 
-local INIT_FILE = "kong.yml"
+local DEFAULT_FILE = "./kong.yml"
 
 
 local accepted_formats = {
@@ -18,19 +18,38 @@ local accepted_formats = {
 }
 
 
-local function generate_init()
-  if pl_file.access_time(INIT_FILE) then
-    error(INIT_FILE .. " already exists in the current directory.\n" ..
-          "Will not overwrite it.")
+local function db_export(filename, conf)
+  if pl_file.access_time(filename) then
+    error(filename .. " already exists. Will not overwrite it.")
   end
 
-  pl_file.write(INIT_FILE, kong_yml)
+  local fd, err = io.open(filename, "w")
+  if not fd then
+    return nil, err
+  end
+
+  local ok, err = declarative.export_from_db(fd)
+  if not ok then
+    error(err)
+  end
+
+  fd:close()
+
+  os.exit(0)
+end
+
+
+local function generate_init(filename)
+  if pl_file.access_time(filename) then
+    error(filename .. " already exists.\nWill not overwrite it.")
+  end
+  pl_file.write(filename, kong_yml)
 end
 
 
 local function execute(args)
   if args.command == "init" then
-    generate_init()
+    generate_init(pl_path.abspath(args[1] or DEFAULT_FILE))
     os.exit(0)
   end
 
@@ -46,14 +65,16 @@ local function execute(args)
     conf = assert(conf_loader(conf.kong_env))
   end
 
-  if args.command == "db-import" then
-    args.command = "db_import"
-  end
+  args.command = args.command:gsub("%-", "_")
 
   if args.command == "db_import" and conf.database == "off" then
     error("'kong config db_import' only works with a database.\n" ..
           "When using database=off, reload your declarative configuration\n" ..
           "using the /config endpoint.")
+  end
+
+  if args.command == "db_export" and conf.database == "off" then
+    error("'kong config db_export' only works with a database.")
   end
 
   package.path = conf.lua_package_path .. ";" .. package.path
@@ -63,11 +84,26 @@ local function execute(args)
     error(err)
   end
 
+  _G.kong = kong_global.new()
+  kong_global.init_pdk(_G.kong, conf, nil) -- nil: latest PDK
+
+  local db = assert(DB.new(conf))
+  assert(db:init_connector())
+  assert(db:connect())
+  assert(db.plugins:load_plugin_schemas(conf.loaded_plugins))
+
+  _G.kong.db = db
+
+  if args.command == "db_export" then
+    return db_export(pl_path.abspath(args[1] or DEFAULT_FILE), conf)
+  end
+
   if args.command == "db_import" or args.command == "parse" then
     local filename = args[1]
     if not filename then
       error("expected a declarative configuration file; see `kong config --help`")
     end
+    filename = pl_path.abspath(filename)
 
     local dc_table, err, _, vers = dc:parse_file(filename, accepted_formats)
     if not dc_table then
@@ -76,16 +112,6 @@ local function execute(args)
 
     if args.command == "db_import" then
       log("parse successful, beginning import")
-
-      _G.kong = kong_global.new()
-      kong_global.init_pdk(_G.kong, conf, nil) -- nil: latest PDK
-
-      local db = assert(DB.new(conf))
-      assert(db:init_connector())
-      assert(db:connect())
-      assert(db.plugins:load_plugin_schemas(conf.loaded_plugins))
-
-      _G.kong.db = db
 
       local ok, err = declarative.load_into_db(dc_table)
       if not ok then
@@ -120,11 +146,18 @@ Usage: kong config COMMAND [OPTIONS]
 Use declarative configuration files with Kong.
 
 The available commands are:
-  init                                Generate an example config file to
-                                      get you started.
+  init [<file>]                       Generate an example config file to
+                                      get you started. If a filename
+                                      is not given, ]] .. DEFAULT_FILE .. [[ is used
+                                      by default.
 
   db_import <file>                    Import a declarative config file into
                                       the Kong database.
+
+  db_export [<file>]                  Export the Kong database into a
+                                      declarative config file. If a filename
+                                      is not given, ]] .. DEFAULT_FILE .. [[ is used
+                                      by default.
 
   parse <file>                        Parse a declarative config file (check
                                       its syntax) but do not load it into Kong.
@@ -140,6 +173,7 @@ return {
   sub_commands = {
     init = true,
     db_import = true,
+    db_export = true,
     parse = true,
   },
 }

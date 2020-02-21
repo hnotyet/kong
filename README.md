@@ -5,9 +5,9 @@
 [![Twitter](https://img.shields.io/twitter/follow/thekonginc.svg?style=social&label=Follow)](https://twitter.com/intent/follow?screen_name=thekonginc)
 
 Kong is a cloud-native, fast, scalable, and distributed Microservice
-Abstraction Layer *(also known as an API Gateway, API Middleware or in some
-cases Service Mesh)*. Made available as an open-source project in 2015, its
-core values are high performance and extensibility.
+Abstraction Layer *(also known as an API Gateway or API Middleware)*.
+Made available as an open-source project in 2015, its core values are
+high performance and extensibility.
 
 Actively maintained, Kong is widely used in production at companies ranging
 from startups to Global 5000 as well as government organizations.
@@ -53,6 +53,8 @@ transformations, and more through plugins.
 - **Serverless**: Invoke and secure AWS Lambda or OpenWhisk functions directly
   from Kong.
 - **WebSockets**: Communicate to your upstream services via WebSockets.
+- **gRPC**: Communicate to your gRPC services and observe your traffic with logging
+  and observability plugins
 - **OAuth2.0**: Easily add OAuth2.0 authentication to your APIs.
 - **Logging**: Log requests and responses to your system over HTTP, TCP, UDP,
   or to disk.
@@ -241,7 +243,7 @@ Enterprise](https://konghq.com/kong-enterprise-edition/).
 ## License
 
 ```
-Copyright 2016-2019 Kong Inc.
+Copyright 2016-2020 Kong Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

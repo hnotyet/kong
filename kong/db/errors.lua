@@ -41,6 +41,8 @@ local ERRORS              = {
   OPERATION_UNSUPPORTED   = 12, -- operation is not supported with this strategy
   FOREIGN_KEYS_UNRESOLVED = 13, -- foreign key(s) could not be resolved
   DECLARATIVE_CONFIG      = 14, -- error parsing declarative configuration
+  TRANSFORMATION_ERROR    = 15, -- error with dao transformations
+  INVALID_FOREIGN_KEY     = 16,
 }
 
 
@@ -62,6 +64,8 @@ local ERRORS_NAMES                 = {
   [ERRORS.OPERATION_UNSUPPORTED]   = "operation unsupported",
   [ERRORS.FOREIGN_KEYS_UNRESOLVED] = "foreign keys unresolved",
   [ERRORS.DECLARATIVE_CONFIG]      = "invalid declarative configuration",
+  [ERRORS.TRANSFORMATION_ERROR]    = "transformation error",
+  [ERRORS.INVALID_FOREIGN_KEY]     = "invalid foreign key",
 }
 
 
@@ -182,6 +186,17 @@ function _M:invalid_primary_key(primary_key)
   local message = fmt("invalid primary key: '%s'", pl_pretty(primary_key, ""))
 
   return new_err_t(self, ERRORS.INVALID_PRIMARY_KEY, message, primary_key)
+end
+
+
+function _M:invalid_foreign_key(foreign_key)
+  if type(foreign_key) ~= "table" then
+    error("foreign_key must be a table", 2)
+  end
+
+  local message = fmt("invalid foreign key: '%s'", pl_pretty(foreign_key, ""))
+
+  return new_err_t(self, ERRORS.INVALID_FOREIGN_KEY, message, foreign_key)
 end
 
 
@@ -384,6 +399,12 @@ end
 function _M:database_error(err)
   err = err or ERRORS_NAMES[ERRORS.DATABASE_ERROR]
   return new_err_t(self, ERRORS.DATABASE_ERROR, err)
+end
+
+
+function _M:transformation_error(err)
+  err = err or ERRORS_NAMES[ERRORS.TRANSFORMATION_ERROR]
+  return new_err_t(self, ERRORS.TRANSFORMATION_ERROR, err)
 end
 
 

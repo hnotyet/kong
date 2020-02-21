@@ -141,8 +141,7 @@ describe("declarative config: process_auto_fields", function()
               _ignore = { { foo = "bar" } },
               name = "key-auth",
               enabled = true,
-              run_on = "first",
-              protocols = { "http", "https" },
+              protocols = { "grpc", "grpcs", "http", "https" },
               config = {
                 hide_credentials = false,
                 key_in_body = false,
@@ -155,8 +154,7 @@ describe("declarative config: process_auto_fields", function()
               _ignore = { { foo = "bar" } },
               name = "http-log",
               enabled = true,
-              run_on = "first",
-              protocols = { "http", "https" },
+              protocols = { "grpc", "grpcs", "http", "https" },
               config = {
                 http_endpoint = "https://example.com",
                 content_type = "application/json",
@@ -192,8 +190,7 @@ describe("declarative config: process_auto_fields", function()
               route = "foo",
               name = "key-auth",
               enabled = true,
-              run_on = "first",
-              protocols = { "http", "https" },
+              protocols = { "grpc", "grpcs", "http", "https" },
               config = {
                 hide_credentials = false,
                 key_in_body = false,
@@ -206,8 +203,7 @@ describe("declarative config: process_auto_fields", function()
               consumer = "my-consumer",
               name = "http-log",
               enabled = true,
-              run_on = "first",
-              protocols = { "http", "https" },
+              protocols = { "grpc", "grpcs", "http", "https" },
               config = {
                 http_endpoint = "https://example.com",
                 content_type = "application/json",
@@ -302,8 +298,7 @@ describe("declarative config: process_auto_fields", function()
                     _ignore = { { foo = "bar" } },
                     name = "key-auth",
                     enabled = true,
-                    run_on = "first",
-                    protocols = { "http", "https" },
+                    protocols = { "grpc", "grpcs", "http", "https" },
                     config = {
                       hide_credentials = false,
                       key_in_body = false,
@@ -314,8 +309,7 @@ describe("declarative config: process_auto_fields", function()
                   {
                     name = "http-log",
                     enabled = true,
-                    run_on = "first",
-                    protocols = { "http", "https" },
+                    protocols = { "grpc", "grpcs", "http", "https" },
                     config = {
                       http_endpoint = "https://example.com",
                       content_type = "application/json",
@@ -342,8 +336,7 @@ describe("declarative config: process_auto_fields", function()
                   {
                     name = "basic-auth",
                     enabled = true,
-                    run_on = "first",
-                    protocols = { "http", "https" },
+                    protocols = { "grpc", "grpcs", "http", "https" },
                     config = {
                       hide_credentials = false,
                     }
@@ -351,8 +344,7 @@ describe("declarative config: process_auto_fields", function()
                   {
                     name = "tcp-log",
                     enabled = true,
-                    run_on = "first",
-                    protocols = { "http", "https" },
+                    protocols = { "grpc", "grpcs", "http", "https" },
                     config = {
                       host = "127.0.0.1",
                       port = 10000,
@@ -404,16 +396,20 @@ describe("declarative config: process_auto_fields", function()
               host: example.com
               protocol: https
               routes:
-                - paths:
+                - path_handling: v1
+                  paths:
                   - /path
-                - hosts:
+                - path_handling: v1
+                  hosts:
                   - example.com
-                - methods: ["GET", "POST"]
+                - path_handling: v1
+                  methods: ["GET", "POST"]
             - name: bar
               host: example.test
               port: 3000
               routes:
-                - paths:
+                - path_handling: v1
+                  paths:
                   - /path
                   hosts:
                   - example.com
@@ -438,6 +434,7 @@ describe("declarative config: process_auto_fields", function()
                     preserve_host = false,
                     regex_priority = 0,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     https_redirect_status_code = 426,
                   },
@@ -446,6 +443,7 @@ describe("declarative config: process_auto_fields", function()
                     preserve_host = false,
                     regex_priority = 0,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     https_redirect_status_code = 426,
                   },
@@ -454,6 +452,7 @@ describe("declarative config: process_auto_fields", function()
                     preserve_host = false,
                     regex_priority = 0,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     https_redirect_status_code = 426,
                   },
@@ -476,6 +475,7 @@ describe("declarative config: process_auto_fields", function()
                     preserve_host = false,
                     regex_priority = 0,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     https_redirect_status_code = 426,
                   },
@@ -496,6 +496,7 @@ describe("declarative config: process_auto_fields", function()
               protocol: https
               routes:
               - name: foo
+                path_handling: v1
                 methods: ["GET"]
                 plugins:
           ]]))
@@ -518,6 +519,7 @@ describe("declarative config: process_auto_fields", function()
                     methods = { "GET" },
                     preserve_host = false,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     regex_priority = 0,
                     https_redirect_status_code = 426,
@@ -538,6 +540,7 @@ describe("declarative config: process_auto_fields", function()
               protocol: https
               routes:
               - name: foo
+                path_handling: v1
                 methods: ["GET"]
                 plugins:
                   - name: key-auth
@@ -549,6 +552,7 @@ describe("declarative config: process_auto_fields", function()
               port: 3000
               routes:
               - name: bar
+                path_handling: v1
                 paths:
                 - /
                 plugins:
@@ -577,6 +581,7 @@ describe("declarative config: process_auto_fields", function()
                     methods = { "GET" },
                     preserve_host = false,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     regex_priority = 0,
                     https_redirect_status_code = 426,
@@ -584,8 +589,7 @@ describe("declarative config: process_auto_fields", function()
                       {
                         name = "key-auth",
                         enabled = true,
-                        run_on = "first",
-                        protocols = { "http", "https" },
+                        protocols = { "grpc", "grpcs", "http", "https" },
                         config = {
                           hide_credentials = false,
                           key_in_body = false,
@@ -596,8 +600,7 @@ describe("declarative config: process_auto_fields", function()
                       {
                         name = "http-log",
                         enabled = true,
-                        run_on = "first",
-                        protocols = { "http", "https" },
+                        protocols = { "grpc", "grpcs", "http", "https" },
                         config = {
                           http_endpoint = "https://example.com",
                           content_type = "application/json",
@@ -628,6 +631,7 @@ describe("declarative config: process_auto_fields", function()
                     paths = { "/" },
                     preserve_host = false,
                     strip_path = true,
+                    path_handling = "v1",
                     protocols = { "http", "https" },
                     regex_priority = 0,
                     https_redirect_status_code = 426,
@@ -635,8 +639,7 @@ describe("declarative config: process_auto_fields", function()
                       {
                         name = "basic-auth",
                         enabled = true,
-                        run_on = "first",
-                        protocols = { "http", "https" },
+                        protocols = { "grpc", "grpcs", "http", "https" },
                         config = {
                           hide_credentials = false,
                         }
@@ -644,8 +647,7 @@ describe("declarative config: process_auto_fields", function()
                       {
                         name = "tcp-log",
                         enabled = true,
-                        run_on = "first",
-                        protocols = { "http", "https" },
+                        protocols = { "grpc", "grpcs", "http", "https" },
                         config = {
                           host = "127.0.0.1",
                           port = 10000,

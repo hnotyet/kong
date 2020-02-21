@@ -27,7 +27,7 @@
 -- running node.
 --
 -- @field kong.version
--- @usage print(kong.version) -- "0.14.0"
+-- @usage print(kong.version) -- "2.0.0"
 
 
 ---
@@ -211,7 +211,7 @@ assert(package.loaded["resty.core"])
 
 local MAJOR_VERSIONS = {
   [1] = {
-    version = "1.1.0",
+    version = "1.3.0",
     modules = {
       "table",
       "node",

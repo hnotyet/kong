@@ -269,6 +269,11 @@ describe("Admin API (#" .. strategy .. "): ", function()
         assert.equal(1, #json.data)
         assert.same(c, json.data[1])
       end)
+      it("returns emtpy json array when consumer does not exist", function()
+        local res = client:get("/consumers?custom_id=does-not-exist")
+        local body = assert.response(res).has.status(200)
+        assert.match('"data":%[%]', body)
+      end)
     end)
     it("returns 405 on invalid method", function()
       local methods = {"DELETE", "PATCH"}
@@ -668,9 +673,8 @@ describe("Admin API (#" .. strategy .. "): ", function()
             assert.same({
               code = Errors.codes.UNIQUE_VIOLATION,
               name = "unique constraint violation",
-              message = [[UNIQUE violation detected on '{service=null,]] ..
-                        [[name="rewriter",route=null,consumer={id="]] ..
-                        consumer.id .. [["}}']],
+              message = [[UNIQUE violation detected on '{consumer={id="]] .. consumer.id ..
+                        [["},name="rewriter",route=null,service=null}']],
               fields = {
                 name = "rewriter",
                 consumer = {

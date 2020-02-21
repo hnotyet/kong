@@ -1,6 +1,6 @@
 local constants = require "kong.constants"
 local sha256 = require "resty.sha256"
-local openssl_hmac = require "openssl.hmac"
+local openssl_hmac = require "resty.openssl.hmac"
 local utils = require "kong.tools.utils"
 
 
@@ -132,10 +132,11 @@ local function create_hash(request_uri, hmac_params)
     if not header_value then
       if header == "request-line" then
         -- request-line in hmac headers list
-        local request_line = fmt("%s %s HTTP/%s", kong.request.get_method(),
-                                 request_uri, kong.request.get_http_version())
+        local request_line = fmt("%s %s HTTP/%.01f",
+                                 kong.request.get_method(),
+                                 request_uri,
+                                 assert(kong.request.get_http_version()))
         signing_string = signing_string .. request_line
-
       else
         signing_string = signing_string .. header .. ":"
       end
@@ -231,18 +232,6 @@ local function validate_body()
   local digest_created = "SHA-256=" .. encode_base64(digest:final())
 
   return digest_created == digest_received
-end
-
-
-local function load_consumer_into_memory(consumer_id, anonymous)
-  local result, err = kong.db.consumers:select { id = consumer_id }
-  if not result then
-    if anonymous and not err then
-      err = 'anonymous consumer "' .. consumer_id .. '" not found'
-    end
-    return nil, err
-  end
-  return result
 end
 
 
@@ -348,7 +337,7 @@ local function do_authentication(conf)
   local consumer_cache_key, consumer
   consumer_cache_key = kong.db.consumers:cache_key(credential.consumer.id)
   consumer, err      = kong.cache:get(consumer_cache_key, nil,
-                                      load_consumer_into_memory,
+                                      kong.client.load_consumer,
                                       credential.consumer.id)
   if err then
     kong.log.err(err)
@@ -377,10 +366,10 @@ function _M.execute(conf)
       -- get anonymous user
       local consumer_cache_key = kong.db.consumers:cache_key(conf.anonymous)
       local consumer, err      = kong.cache:get(consumer_cache_key, nil,
-                                                load_consumer_into_memory,
+                                                kong.client.load_consumer,
                                                 conf.anonymous, true)
       if err then
-        kong.log.err(err)
+        kong.log.err("failed to load anonymous consumer:", err)
         return kong.response.exit(500, { message = "An unexpected error occurred" })
       end
 

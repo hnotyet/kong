@@ -5,6 +5,7 @@ local Strategies   = require "kong.db.strategies"
 local MetaSchema   = require "kong.db.schema.metaschema"
 local constants    = require "kong.constants"
 local log          = require "kong.cmd.utils.log"
+local utils        = require "kong.tools.utils"
 
 
 local fmt          = string.format
@@ -62,6 +63,18 @@ function DB.new(kong_config, strategy)
                         err)
       end
       schemas[entity_name] = entity
+
+      -- load core entities subschemas
+      local subschemas
+      ok, subschemas = utils.load_module_if_exists("kong.db.schema.entities." .. entity_name .. "_subschemas")
+      if ok then
+        for name, subschema in pairs(subschemas) do
+          local ok, err = entity:new_subschema(name, subschema)
+          if not ok then
+            return nil, ("error initializing schema for %s: %s"):format(entity_name, err)
+          end
+        end
+      end
     end
   end
 
@@ -379,24 +392,6 @@ do
 
   function DB:last_schema_state()
     return last_schema_state or self:schema_state()
-  end
-
-
-  function DB:are_014_apis_present()
-    local ok, err = self.connector:connect_migrations({ no_keyspace = true })
-    if not ok then
-      return nil, prefix_err(self, err)
-    end
-
-    ok, err = self.connector:are_014_apis_present()
-
-    self.connector:close()
-
-    if err then
-      return nil, prefix_err(self, "failed checking for presence of 0.14 apis: " .. err)
-    end
-
-    return ok
   end
 
 

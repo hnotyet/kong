@@ -1,5 +1,5 @@
 local cjson = require "cjson"
-local openssl_hmac = require "openssl.hmac"
+local openssl_hmac = require "resty.openssl.hmac"
 local helpers = require "spec.helpers"
 local utils = require "kong.tools.utils"
 local resty_sha256 = require "resty.sha256"
@@ -122,6 +122,19 @@ for _, strategy in helpers.each_strategy() do
           enforce_headers       = {"date", "request-line"},
           algorithms            = {"hmac-sha1", "hmac-sha256"},
           validate_request_body = true
+        }
+      }
+
+      local route7 = bp.routes:insert {
+        hosts = { "hmacauth7.com" },
+      }
+
+      bp.plugins:insert {
+        name     = "hmac-auth",
+        route = { id = route7.id },
+        config   = {
+          anonymous  = anonymous_user.username,
+          clock_skew = 3000
         }
       }
 
@@ -448,6 +461,31 @@ for _, strategy in helpers.each_strategy() do
         })
         assert.res_status(200, res)
       end)
+
+      it("should encode http-1 requests as http/1.0", function()
+        local date = os.date("!%a, %d %b %Y %H:%M:%S GMT")
+        local encodedSignature = ngx.encode_base64(
+          hmac_sha1_binary("secret", "date: "
+            .. date .. "\n" .. "content-md5: md5" .. "\nGET /request HTTP/1.0"))
+        local hmacAuth = [[hmac username="bob",  algorithm="hmac-sha1", ]]
+          .. [[headers="date content-md5 request-line", signature="]]
+          .. encodedSignature .. [["]]
+        local res = assert(proxy_client:send {
+          version = 1.0,
+          method  = "GET",
+          path    = "/request",
+          body    = {},
+          headers = {
+            ["HOST"]                = "hmacauth.com",
+            date                    = date,
+            ["proxy-authorization"] = hmacAuth,
+            authorization           = "hello",
+            ["content-md5"]         = "md5",
+          },
+        })
+        assert.res_status(200, res)
+      end)
+
 
       it("should not pass with GET with wrong username in signature", function()
         local date = os.date("!%a, %d %b %Y %H:%M:%S GMT")
@@ -968,6 +1006,22 @@ for _, strategy in helpers.each_strategy() do
         assert.equal("true", body.headers["x-anonymous-consumer"])
         assert.equal('no-body', body.headers["x-consumer-username"])
       end)
+
+      it("should pass with invalid credentials and username in anonymous", function()
+        local res = assert(proxy_client:send {
+          method  = "GET",
+          path    = "/request",
+          body    = {},
+          headers = {
+            ["HOST"] = "hmacauth7.com",
+          },
+        })
+        local body = assert.res_status(200, res)
+        body = cjson.decode(body)
+        assert.equal("true", body.headers["x-anonymous-consumer"])
+        assert.equal('no-body', body.headers["x-consumer-username"])
+      end)
+
       it("errors when anonymous user doesn't exist", function()
         finally(function()
           proxy_client = helpers.proxy_client()
@@ -1154,7 +1208,7 @@ for _, strategy in helpers.each_strategy() do
       end)
 
       it("should pass with GET with request-line having query param but signed without query param", function()
-        -- hmac-auth needs to validate signatures created both with and without 
+        -- hmac-auth needs to validate signatures created both with and without
         -- query params for a supported deprecation period.
         --
         -- Regression for https://github.com/Kong/kong/issues/3672

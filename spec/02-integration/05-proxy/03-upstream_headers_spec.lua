@@ -109,11 +109,10 @@ for _, strategy in helpers.each_strategy() do
         assert.is_nil(headers["proxy-connection"])
         assert.is_nil(headers["proxy-authenticate"])
         assert.is_nil(headers["proxy-authorization"])
-        assert.is_nil(headers["te"])
-        assert.is_nil(headers["trailer"])
         assert.is_nil(headers["upgrade"])
         assert.is_nil(headers["x-boo"])
         assert.is_nil(headers["x-bar"])
+        assert.equal("trailers", headers["te"]) -- trailers are kept
         assert.equal("Keep-Me", headers["x-foo-bar"])
         assert.equal("Keep-Me", headers["close"])
       end)
@@ -162,6 +161,22 @@ for _, strategy in helpers.each_strategy() do
         local headers = res.headers
 
         assert.equal("Expires", headers["Trailer"])
+      end)
+
+      it("keeps upgrade when upgrading", function()
+        local res = assert(proxy_client:send {
+          method  = "GET",
+          headers = {
+            ["Host"] = "headers-inspect.com",
+            ["Connection"] = "keep-alive, Upgrade",
+            ["Upgrade"] = "websocket"
+          },
+          path = "/get",
+        })
+
+        local json = cjson.decode(assert.res_status(200, res))
+        assert.equal("keep-alive, Upgrade", json.headers.connection)
+        assert.equal("websocket", json.headers.upgrade)
       end)
     end)
 

@@ -1,8 +1,8 @@
 --- A library of ready-to-use type synonyms to use in schema definitions.
 -- @module kong.db.schema.typedefs
 local utils = require "kong.tools.utils"
-local openssl_pkey = require "openssl.pkey"
-local openssl_x509 = require "openssl.x509"
+local openssl_pkey = require "resty.openssl.pkey"
+local openssl_x509 = require "resty.openssl.x509"
 local iputils = require "resty.iputils"
 local Schema = require("kong.db.schema")
 local socket_url = require("socket.url")
@@ -29,6 +29,12 @@ local function validate_host(host)
   end
 
   return true
+end
+
+
+local function validate_host_with_optional_port(host)
+  local res, err_or_port = utils.normalize_ip(host)
+  return (res and true or nil), err_or_port
 end
 
 
@@ -173,10 +179,9 @@ end
 
 
 local function validate_certificate(cert)
-  local ok
-  ok, cert = pcall(openssl_x509.new, cert)
-  if not ok then
-    return nil, "invalid certificate: " .. cert
+  local _, err =  openssl_x509.new(cert)
+  if err then
+    return nil, "invalid certificate: " .. err
   end
 
   return true
@@ -184,10 +189,9 @@ end
 
 
 local function validate_key(key)
-  local ok
-  ok, key = pcall(openssl_pkey.new, key)
-  if not ok then
-    return nil, "invalid key: " .. key
+  local _, err =  openssl_pkey.new(key)
+  if err then
+    return nil, "invalid key: " .. err
   end
 
   return true
@@ -212,6 +216,12 @@ typedefs.protocol = Schema.define {
 typedefs.host = Schema.define {
   type = "string",
   custom_validator = validate_host,
+}
+
+
+typedefs.host_with_optional_port = Schema.define {
+  type = "string",
+  custom_validator = validate_host_with_optional_port,
 }
 
 
@@ -294,13 +304,6 @@ typedefs.auto_timestamp_ms = Schema.define {
 }
 
 
-typedefs.no_api = Schema.define {
-  type = "foreign",
-  reference = "apis",
-  eq = null,
-}
-
-
 typedefs.no_route = Schema.define {
   type = "foreign",
   reference = "routes",
@@ -347,20 +350,6 @@ typedefs.key = Schema.define {
 }
 
 
-typedefs.run_on = Schema.define {
-  type = "string",
-  required = true,
-  default = "first",
-  one_of = { "first", "second", "all" },
-}
-
-typedefs.run_on_first = Schema.define {
-  type = "string",
-  required = true,
-  default = "first",
-  one_of = { "first" },
-}
-
 typedefs.tag = Schema.define {
   type = "string",
   required = true,
@@ -393,6 +382,133 @@ typedefs.protocols_http = Schema.define {
   default = http_protocols,
   elements = { type = "string", one_of = http_protocols },
 }
+
+
+-- routes typedefs
+-- common for routes and routes subschemas
+
+local function validate_host_with_wildcards(host)
+  local no_wildcards = string.gsub(host, "%*", "abc")
+  return typedefs.host_with_optional_port.custom_validator(no_wildcards)
+end
+
+local function validate_path_with_regexes(path)
+
+
+  local ok, err, err_code = typedefs.path.custom_validator(path)
+
+  if ok or err_code ~= "rfc3986" then
+    return ok, err, err_code
+  end
+
+  -- URI contains characters outside of the reserved list of RFC 3986:
+  -- the value will be interpreted as a regex by the router; but is it a
+  -- valid one? Let's dry-run it with the same options as our router.
+  local _, _, err = ngx.re.find("", path, "aj")
+  if err then
+    return nil,
+           string.format("invalid regex: '%s' (PCRE returned: %s)",
+                         path, err)
+  end
+
+  return true
+end
+
+
+typedefs.sources = Schema.define {
+  type = "set",
+  elements = {
+    type = "record",
+    fields = {
+      { ip = typedefs.ip_or_cidr },
+      { port = typedefs.port },
+    },
+    entity_checks = {
+      { at_least_one_of = { "ip", "port" } }
+    },
+  },
+}
+
+typedefs.no_sources = Schema.define(typedefs.sources { eq = null })
+
+typedefs.destinations = Schema.define {
+  type = "set",
+  elements = {
+    type = "record",
+    fields = {
+      { ip = typedefs.ip_or_cidr },
+      { port = typedefs.port },
+    },
+    entity_checks = {
+      { at_least_one_of = { "ip", "port" } }
+    },
+  },
+}
+
+typedefs.no_destinations = Schema.define(typedefs.destinations { eq = null })
+
+typedefs.methods = Schema.define {
+  type = "set",
+  elements = typedefs.http_method,
+}
+
+typedefs.no_methods = Schema.define(typedefs.methods { eq = null })
+
+typedefs.hosts = Schema.define {
+  type = "array",
+  elements = {
+    type = "string",
+    match_all = {
+      {
+        pattern = "^[^*]*%*?[^*]*$",
+        err = "invalid wildcard: must have at most one wildcard",
+      },
+    },
+    match_any = {
+      patterns = { "^%*%.", "%.%*$", "^[^*]*$" },
+      err = "invalid wildcard: must be placed at leftmost or rightmost label",
+    },
+    custom_validator = validate_host_with_wildcards,
+  }
+}
+
+typedefs.no_hosts = Schema.define(typedefs.hosts { eq = null })
+
+typedefs.paths = Schema.define {
+  type = "array",
+  elements = typedefs.path {
+    custom_validator = validate_path_with_regexes,
+    match_none = {
+      {
+        pattern = "//",
+        err = "must not have empty segments"
+      },
+    },
+  }
+}
+
+typedefs.no_paths = Schema.define(typedefs.paths { eq = null })
+
+typedefs.headers = Schema.define {
+  type = "map",
+  keys = {
+    type = "string",
+    match_none = {
+      {
+        pattern = "^[Hh][Oo][Ss][Tt]$",
+        err = "cannot contain 'host' header, which must be specified in the 'hosts' attribute",
+      },
+    },
+  },
+  values = {
+    type = "array",
+    elements = {
+      type = "string",
+    },
+  },
+}
+
+typedefs.no_headers = Schema.define(typedefs.headers { eq = null } )
 
 setmetatable(typedefs, {
   __index = function(_, k)

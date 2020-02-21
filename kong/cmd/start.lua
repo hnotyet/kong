@@ -14,7 +14,7 @@ local function execute(args)
 
   local conf = assert(conf_loader(args.conf, {
     prefix = args.prefix
-  }))
+  }, { starting = true }))
 
   conf.pg_timeout = args.db_timeout -- connect + send + read
 
@@ -44,7 +44,7 @@ local function execute(args)
       schema_state = assert(db:schema_state())
     end
 
-    migrations_utils.check_state(schema_state, db)
+    migrations_utils.check_state(schema_state)
 
     if schema_state.missing_migrations or schema_state.pending_migrations then
       local r = ""

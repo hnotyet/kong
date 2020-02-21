@@ -81,7 +81,9 @@ local function ldap_authenticate(given_username, given_password, conf)
         return nil, err
       end
     end
+  end
 
+  if conf.start_tls or conf.ldaps then
     _, err = sock:sslhandshake(true, conf.ldap_host, conf.verify_ldap_host)
     if err ~= nil then
       return false, fmt("failed to do SSL handshake with %s:%s: %s",
@@ -151,19 +153,6 @@ local function authenticate(conf, given_credentials)
   end
 
   return credential and credential.password == given_password, credential
-end
-
-
-local function load_consumer(consumer_id, anonymous)
-  local result, err = kong.db.consumers:select { id = consumer_id }
-  if not result then
-    if anonymous and not err then
-      err = 'anonymous consumer "' .. consumer_id .. '" not found'
-    end
-    return nil, err
-  end
-
-  return result
 end
 
 
@@ -265,10 +254,10 @@ function _M.execute(conf)
       -- get anonymous user
       local consumer_cache_key = kong.db.consumers:cache_key(conf.anonymous)
       local consumer, err      = singletons.cache:get(consumer_cache_key, nil,
-                                                      load_consumer,
+                                                      kong.client.load_consumer,
                                                       conf.anonymous, true)
       if err then
-        kong.log.err(err)
+        kong.log.err("failed to load anonymous consumer:", err)
         return kong.response.exit(500, { message = "An unexpected error occurred" })
       end
 

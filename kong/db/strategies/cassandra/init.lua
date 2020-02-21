@@ -126,6 +126,10 @@ local function build_queries(self)
     return nil, err
   end
 
+  if schema.ttl == true then
+    select_columns = select_columns .. fmt(", TTL(%s) as ttl", self.ttl_field())
+  end
+
   if partitioned then
     return {
       insert = fmt([[
@@ -285,7 +289,7 @@ local function serialize_arg(field, arg)
   elseif field.type == "integer" then
     serialized_arg = cassandra.int(arg)
 
-  elseif field.type == "float" then
+  elseif field.type == "number" then
     serialized_arg = cassandra.float(arg)
 
   elseif field.type == "boolean" then
@@ -511,6 +515,7 @@ function _M.new(connector, schema, errors)
 
   local each_pk_field
   local each_non_pk_field
+  local ttl_field
 
   do
     local non_pk_fields = new_tab(n_fields - n_pk, 0)
@@ -546,6 +551,10 @@ function _M.new(connector, schema, errors)
     each_non_pk_field = function()
       return iter, non_pk_fields, 0
     end
+
+    ttl_field = function()
+      return schema.ttl and non_pk_fields[1] and non_pk_fields[1].field_name
+    end
   end
 
   -- self instanciation
@@ -556,6 +565,7 @@ function _M.new(connector, schema, errors)
     errors                  = errors,
     each_pk_field           = each_pk_field,
     each_non_pk_field       = each_non_pk_field,
+    ttl_field               = ttl_field,
     foreign_keys_db_columns = {},
     queries                 = nil,
   }
@@ -909,14 +919,23 @@ function _mt:select_by_field(field_name, field_value, options)
   if err then
     return nil, err
   end
-  local select_cql = fmt(cql, field_name .. " = ?")
-  local bind_args = new_tab(1, 0)
-  local field = self.schema.fields[field_name]
 
+  local field
   if field_name == "cache_key" then
     field = cache_key_field
+  else
+    field = self.schema.fields[field_name]
+    if field
+      and field.reference
+      and self.foreign_keys_db_columns[field_name]
+      and self.foreign_keys_db_columns[field_name][1]
+    then
+      field_name = self.foreign_keys_db_columns[field_name][1].col_name
+    end
   end
 
+  local select_cql = fmt(cql, field_name .. " = ?")
+  local bind_args = new_tab(1, 0)
   bind_args[1] = serialize_arg(field, field_value)
 
   return _select(self, select_cql, bind_args)
@@ -924,7 +943,6 @@ end
 
 
 do
-  local opts = new_tab(0, 2)
 
   local function execute_page(self, cql, args, offset, opts)
     local rows, err = self.connector:query(cql, args, opts, "read")
@@ -947,7 +965,7 @@ do
     return rows, nil, next_offset
   end
 
-  local function query_page(self, offset, foreign_key, foreign_key_db_columns)
+  local function query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
     local cql
     local args
     local err
@@ -1008,6 +1026,7 @@ do
     if not entity_ids then
       return {}, nil, nil
     end
+    local entity_index = 0
     entity_count = entity_count or #entity_ids
     local entities = new_tab(entity_count, 0)
     -- TODO: send one query using IN
@@ -1017,12 +1036,15 @@ do
       if err then
         return nil, err, err_t
       end
-      entities[i] = entity
+      if entity then
+        entity_index = entity_index + 1
+        entities[entity_index] = entity
+      end
     end
     return entities, nil, nil
   end
 
-  local function query_page_for_tags(self, size, offset, tags, cond)
+  local function query_page_for_tags(self, size, offset, tags, cond, opts)
     -- TODO: if we don't sort, we can have a performance guidance to user
     -- to "always put tags with less entity at the front of query"
     table.sort(tags)
@@ -1131,8 +1153,8 @@ do
           clear_tab(current_entity_ids)
           current_entity_count = 0
           for i, row in ipairs(rows) do
-            current_entity_ids[i] = row.entity_id
             current_entity_count = current_entity_count + 1
+            current_entity_ids[current_entity_count] = row.entity_id
           end
         end
       end
@@ -1179,6 +1201,11 @@ do
   end
 
   function _mt:page(size, offset, options, foreign_key, foreign_key_db_columns)
+    local opts = new_tab(0, 2)
+    if not size then
+      size = self.connector:get_page_size(options)
+    end
+
     if offset then
       local offset_decoded = decode_base64(offset)
       if not offset_decoded then
@@ -1192,10 +1219,10 @@ do
     opts.paging_state = offset
 
     if options and options.tags then
-      return query_page_for_tags(self, size, offset, options.tags, options.tags_cond)
+      return query_page_for_tags(self, size, offset, options.tags, options.tags_cond, opts)
     end
 
-    return query_page(self, offset, foreign_key, foreign_key_db_columns)
+    return query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
   end
 end
 
@@ -1245,6 +1272,13 @@ do
 
     for _, field_name, field in self.each_non_pk_field() do
       if entity[field_name] ~= nil then
+        if field.unique and entity[field_name] ~= null then
+          local _, err_t = check_unique(self, primary_key, entity, field_name)
+          if err_t then
+            return nil, err_t
+          end
+        end
+
         if field.type == "foreign" then
           local foreign_pk = entity[field_name]
 
@@ -1260,13 +1294,6 @@ do
           serialize_foreign_pk(db_columns, args, args_names, foreign_pk)
 
         else
-          if field.unique and entity[field_name] ~= null then
-            local _, err_t = check_unique(self, primary_key, entity, field_name)
-            if err_t then
-              return nil, err_t
-            end
-          end
-
           insert(args, serialize_arg(field, entity[field_name]))
           insert(args_names, field_name)
         end
@@ -1461,7 +1488,7 @@ do
         local pager = function(size, offset)
           return strategy[method](strategy, primary_key, size, offset)
         end
-        for row, err in iteration.by_row(self, pager, 1000) do
+        for row, err in iteration.by_row(self, pager) do
           if err then
             return nil, self.errors:database_error("could not gather " ..
                                                    "associated entities " ..

@@ -1,7 +1,9 @@
 local Errors  = require "kong.db.errors"
+local defaults = require "kong.db.strategies.connector".defaults
 local utils   = require "kong.tools.utils"
 local helpers = require "spec.helpers"
 local cjson   = require "cjson"
+local ssl_fixtures = require "spec.fixtures.ssl"
 
 
 local fmt      = string.format
@@ -23,6 +25,7 @@ for _, strategy in helpers.each_strategy() do
         "upstreams",
         "targets",
         "certificates",
+        "ca_certificates",
         "snis",
       })
     end)
@@ -69,6 +72,145 @@ for _, strategy in helpers.each_strategy() do
           assert.has_error(function()
             db.routes:page(nil, false)
           end, "offset must be a string")
+        end)
+
+        describe("pagination options", function()
+          it("errors on invalid page size", function()
+            local ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = 0,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.page_size: must be an integer between 1 and %d)",
+                             strategy, db.routes.pagination.max_page_size), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = {},
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = true,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = false,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+          end)
+
+          it("errors on invalid max page size", function()
+            local ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                max_page_size = 0,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.max_page_size: must be an integer greater than 0)",
+                             strategy, db.routes.pagination.max_page_size), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                max_page_size = {},
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.max_page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                max_page_size = true,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.max_page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                max_page_size = false,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] invalid option (pagination.max_page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+          end)
+
+          it("errors on invalid page size and invalid max page size", function()
+            local ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = 0,
+                max_page_size = 0,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] 2 option violations (pagination.max_page_size: must be an integer greater than 0; " ..
+                                                       "pagination.page_size: must be an integer between 1 and %d)",
+                             strategy, db.routes.pagination.max_page_size), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = {},
+                max_page_size = {},
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] 2 option violations (pagination.max_page_size: must be a number; " ..
+                                                       "pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = true,
+                max_page_size = true,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] 2 option violations (pagination.max_page_size: must be a number; " ..
+                                                       "pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+
+            ok, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = false,
+                max_page_size = false,
+              }
+            })
+
+            assert.is_nil(ok)
+            assert.equal(fmt("[%s] 2 option violations (pagination.max_page_size: must be a number; " ..
+                                                       "pagination.page_size: must be a number)", strategy), err)
+            assert.equal(11, err_t.code)
+          end)
         end)
 
         -- I/O
@@ -217,7 +359,7 @@ for _, strategy in helpers.each_strategy() do
           it("returns an error with invalid size", function()
             local rows, err, err_t = db.routes:page(5.5)
             assert.is_nil(rows)
-            local message  = "size must be an integer between 1 and 1000"
+            local message  = "size must be an integer between 1 and " .. defaults.pagination.max_page_size
             assert.equal(fmt("[%s] %s", strategy, message), err)
             assert.same({
               code     = Errors.codes.INVALID_SIZE,
@@ -249,13 +391,19 @@ for _, strategy in helpers.each_strategy() do
                 methods = { "GET" },
               })
             end
+
+
+            db.routes.pagination.page_size = 100
+            db.routes.pagination.max_page_size = 1000
           end)
 
           lazy_teardown(function()
+            db.routes.pagination.page_size = defaults.pagination.page_size
+            db.routes.pagination.max_page_size = defaults.pagination.max_page_size
             db:truncate("routes")
           end)
 
-          it("defaults page_size = 100 and invokes schema post-processing", function()
+          it("= 100 and invokes schema post-processing", function()
             local rows, err, err_t = db.routes:page()
             assert.is_nil(err_t)
             assert.is_nil(err)
@@ -268,6 +416,19 @@ for _, strategy in helpers.each_strategy() do
             for i = 1, #rows do
               assert.is_truthy(rows[i].methods.GET)
             end
+          end)
+
+          it("of 100 is overridden by page size option of 50", function()
+            local rows, err, err_t = db.routes:page(nil, nil, {
+              pagination = {
+                page_size = 50,
+              }
+            })
+            assert.is_nil(err_t)
+            assert.is_nil(err)
+            assert.is_table(rows)
+            assert.equal(cjson.array_mt, getmetatable(rows))
+            assert.equal(50, #rows)
           end)
         end)
       end)
@@ -354,11 +515,11 @@ for _, strategy in helpers.each_strategy() do
             strategy = strategy,
             message  = unindent([[
               schema violation
-              (must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http')
+              (must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https')
             ]], true, true),
             fields   = {
               ["@entity"] = {
-                "must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http'",
+                "must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https'",
               }
             },
 
@@ -378,11 +539,11 @@ for _, strategy in helpers.each_strategy() do
             strategy = strategy,
             message  = unindent([[
               schema violation
-              (must set one of 'methods', 'hosts', 'paths', 'snis' when 'protocols' is 'https')
+              (must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https')
             ]], true, true),
             fields   = {
               ["@entity"] = {
-                "must set one of 'methods', 'hosts', 'paths', 'snis' when 'protocols' is 'https'",
+                "must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https'",
               }
             },
 
@@ -421,6 +582,7 @@ for _, strategy in helpers.each_strategy() do
           local fake_id = utils.uuid()
           local credentials, _, err_t = db.basicauth_credentials:insert({
             username = "peter",
+            password = "pan",
             consumer = { id = fake_id },
           })
 
@@ -492,6 +654,7 @@ for _, strategy in helpers.each_strategy() do
             protocols = { "http" },
             hosts = { "example.com" },
             service = assert(db.services:insert({ host = "service.com" })),
+            path_handling = "v1",
           }, { nulls = true })
           assert.is_nil(err_t)
           assert.is_nil(err)
@@ -509,6 +672,7 @@ for _, strategy in helpers.each_strategy() do
             name            = ngx.null,
             methods         = ngx.null,
             hosts           = { "example.com" },
+            headers         = ngx.null,
             paths           = ngx.null,
             snis            = ngx.null,
             sources         = ngx.null,
@@ -516,6 +680,7 @@ for _, strategy in helpers.each_strategy() do
             regex_priority  = 0,
             preserve_host   = false,
             strip_path      = true,
+            path_handling   = "v1",
             tags            = ngx.null,
             service         = route.service,
             https_redirect_status_code = 426,
@@ -526,9 +691,11 @@ for _, strategy in helpers.each_strategy() do
           local route, err, err_t = db.routes:insert({
             protocols       = { "http" },
             hosts           = { "example.com" },
+            headers         = { location = { "somewhere" } },
             paths           = { "/example" },
             regex_priority  = 3,
             strip_path      = true,
+            path_handling   = "v1",
             service         = bp.services:insert(),
           }, { nulls = true })
           assert.is_nil(err_t)
@@ -547,12 +714,14 @@ for _, strategy in helpers.each_strategy() do
             name            = ngx.null,
             methods         = ngx.null,
             hosts           = { "example.com" },
+            headers         = { location = { "somewhere" } },
             paths           = { "/example" },
             snis            = ngx.null,
             sources         = ngx.null,
             destinations    = ngx.null,
             regex_priority  = 3,
             strip_path      = true,
+            path_handling   = "v1",
             tags            = ngx.null,
             preserve_host   = false,
             service         = route.service,
@@ -567,6 +736,7 @@ for _, strategy in helpers.each_strategy() do
             paths           = { "/example" },
             regex_priority  = 3,
             strip_path      = true,
+            path_handling   = "v1",
           }, { nulls = true })
           assert.is_nil(err_t)
           assert.is_nil(err)
@@ -584,6 +754,7 @@ for _, strategy in helpers.each_strategy() do
             name            = ngx.null,
             methods         = ngx.null,
             hosts           = { "example.com" },
+            headers         = ngx.null,
             paths           = { "/example" },
             snis            = ngx.null,
             sources         = ngx.null,
@@ -591,6 +762,7 @@ for _, strategy in helpers.each_strategy() do
             tags            = ngx.null,
             regex_priority  = 3,
             strip_path      = true,
+            path_handling   = "v1",
             preserve_host   = false,
             service         = ngx.null,
             https_redirect_status_code = 426,
@@ -639,6 +811,128 @@ for _, strategy in helpers.each_strategy() do
             assert.is_nil(err_t)
             assert.is_nil(err)
             assert.is_table(route)
+          end)
+        end)
+
+        describe("#grpc", function()
+          it("creates a Route with 'hosts'", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              hosts     = { "example.com" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(err_t)
+            assert.is_nil(err)
+            assert.is_table(route)
+            assert.same({ "example.com" }, route.hosts)
+          end)
+
+          it("creates a Route with 'paths'", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              paths     = { "/Service1/Method1" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(err_t)
+            assert.is_nil(err)
+            assert.is_table(route)
+            assert.same({ "/Service1/Method1" }, route.paths)
+          end)
+
+          it("'strip_path' is 'false'", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              paths     = { "/Service1/Method1" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(err_t)
+            assert.is_nil(err)
+            assert.is_table(route)
+            assert.same(false, route.strip_path)
+          end)
+
+          it("refuses creating Route with 'methods' attribute", function()
+            local route, err, err_t = db.routes:insert({
+              protocols  = { "grpc", "grpcs" },
+              strip_path = true,
+              paths = { "/" },
+              service    = bp.services:insert(),
+            })
+            assert.is_nil(route)
+            local message  = "schema violation (strip_path: cannot set 'strip_path' when 'protocols' is 'grpc' or 'grpcs')"
+            assert.equal(fmt("[%s] %s", strategy, message), err)
+            assert.same({
+              code        = Errors.codes.SCHEMA_VIOLATION,
+              name        = "schema violation",
+              message     = message,
+              strategy    = strategy,
+              fields      = {
+                strip_path = "cannot set 'strip_path' when 'protocols' is 'grpc' or 'grpcs'"
+              }
+            }, err_t)
+          end)
+
+          it("refuses creating Route with 'methods' attribute", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              methods   = { "PATCH" },
+              paths     = { "/foo", "/bar" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(route)
+            local message  = "schema violation (methods: cannot set 'methods' when 'protocols' is 'grpc' or 'grpcs')"
+            assert.equal(fmt("[%s] %s", strategy, message), err)
+            assert.same({
+              code        = Errors.codes.SCHEMA_VIOLATION,
+              name        = "schema violation",
+              message     = message,
+              strategy    = strategy,
+              fields      = {
+                methods = "cannot set 'methods' when 'protocols' is 'grpc' or 'grpcs'"
+              }
+            }, err_t)
+          end)
+
+          it("refuses creating Route with 'sources' attribute", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              sources = { { ip = "127.0.0.1" } },
+              paths = { "/" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(route)
+            local message  = "schema violation (sources: cannot set 'sources' when 'protocols' is 'grpc' or 'grpcs')"
+            assert.equal(fmt("[%s] %s", strategy, message), err)
+            assert.same({
+              code        = Errors.codes.SCHEMA_VIOLATION,
+              name        = "schema violation",
+              message     = message,
+              strategy    = strategy,
+              fields      = {
+                sources = "cannot set 'sources' when 'protocols' is 'grpc' or 'grpcs'",
+              }
+            }, err_t)
+          end)
+
+          it("refuses creating Route with 'destinations' attribute", function()
+            local route, err, err_t = db.routes:insert({
+              protocols = { "grpc", "grpcs" },
+              destinations = { { ip = "127.0.0.1" } },
+              paths = { "/" },
+              service   = bp.services:insert(),
+            })
+            assert.is_nil(route)
+            local message  = "schema violation (destinations: cannot set 'destinations' when 'protocols' is 'grpc' or 'grpcs')"
+            assert.equal(fmt("[%s] %s", strategy, message), err)
+            assert.same({
+              code        = Errors.codes.SCHEMA_VIOLATION,
+              name        = "schema violation",
+              message     = message,
+              strategy    = strategy,
+              fields      = {
+                destinations = "cannot set 'destinations' when 'protocols' is 'grpc' or 'grpcs'",
+              }
+            }, err_t)
           end)
         end)
 
@@ -765,6 +1059,7 @@ for _, strategy in helpers.each_strategy() do
             protocols = { "https" },
             hosts = { "example.com" },
             regex_priority = 5,
+            path_handling = "v1"
           })
           assert.is_nil(err_t)
           assert.is_nil(err)
@@ -778,6 +1073,7 @@ for _, strategy in helpers.each_strategy() do
             paths           = route.paths,
             regex_priority  = 5,
             strip_path      = route.strip_path,
+            path_handling   = "v1",
             preserve_host   = route.preserve_host,
             tags            = route.tags,
             service         = route.service,
@@ -794,6 +1090,7 @@ for _, strategy in helpers.each_strategy() do
             local route = bp.routes:insert({
               hosts   = { "example.com" },
               methods = { "GET" },
+              path_handling = "v1",
             })
 
             local new_route, err, err_t = db.routes:update({ id = route.id }, {
@@ -809,6 +1106,7 @@ for _, strategy in helpers.each_strategy() do
               hosts           = route.hosts,
               regex_priority  = route.regex_priority,
               strip_path      = route.strip_path,
+              path_handling   = "v1",
               preserve_host   = route.preserve_host,
               tags            = route.tags,
               service         = route.service,
@@ -833,11 +1131,11 @@ for _, strategy in helpers.each_strategy() do
               strategy    = strategy,
               message  = unindent([[
                 schema violation
-                (must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http')
+                (must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https')
               ]], true, true),
               fields   = {
                 ["@entity"] = {
-                  "must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http'",
+                  "must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https'",
                 }
               },
             }, err_t)
@@ -862,14 +1160,14 @@ for _, strategy in helpers.each_strategy() do
               strategy    = strategy,
               message  = unindent([[
                 3 schema violations
-                (must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http';
-                'snis' can only be set when 'protocols' is 'https' or 'tls';
+                ('snis' can only be set when 'protocols' is 'grpcs', 'https' or 'tls';
+                must set one of 'methods', 'hosts', 'headers', 'paths' when 'protocols' is 'http';
                 snis: length must be 0)
               ]], true, true),
               fields   = {
                 ["@entity"] = {
-                  "must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http'",
-                  "'snis' can only be set when 'protocols' is 'https' or 'tls'",
+                  "'snis' can only be set when 'protocols' is 'grpcs', 'https' or 'tls'",
+                  "must set one of 'methods', 'hosts', 'headers', 'paths' when 'protocols' is 'http'",
                 },
                 ["snis"] = "length must be 0",
               },
@@ -916,11 +1214,11 @@ for _, strategy in helpers.each_strategy() do
               strategy    = strategy,
               message  = unindent([[
                 schema violation
-                (must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http')
+                (must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https')
               ]], true, true),
               fields   = {
                 ["@entity"] = {
-                  "must set one of 'methods', 'hosts', 'paths' when 'protocols' is 'http'",
+                  "must set one of 'methods', 'hosts', 'headers', 'paths', 'snis' when 'protocols' is 'https'",
                 }
               },
             }, err_t)
@@ -980,6 +1278,12 @@ for _, strategy in helpers.each_strategy() do
     --]]
 
     describe("Services", function()
+      local certificate
+
+      lazy_setup(function()
+        certificate = assert(bp.certificates:insert())
+      end)
+
       describe(":insert()", function()
         -- no I/O
         it("errors on invalid arg", function()
@@ -1019,33 +1323,35 @@ for _, strategy in helpers.each_strategy() do
           assert.is_true(utils.is_valid_uuid(service.id))
 
           assert.same({
-            id              = service.id,
-            created_at      = service.created_at,
-            updated_at      = service.updated_at,
-            name            = ngx.null,
-            protocol        = "http",
-            host            = "example.com",
-            port            = 80,
-            path            = ngx.null,
-            connect_timeout = 60000,
-            write_timeout   = 60000,
-            read_timeout    = 60000,
-            retries         = 5,
-            tags            = ngx.null,
+            id                 = service.id,
+            created_at         = service.created_at,
+            updated_at         = service.updated_at,
+            name               = ngx.null,
+            protocol           = "http",
+            host               = "example.com",
+            port               = 80,
+            path               = ngx.null,
+            connect_timeout    = 60000,
+            write_timeout      = 60000,
+            read_timeout       = 60000,
+            retries            = 5,
+            tags               = ngx.null,
+            client_certificate = ngx.null,
           }, service)
         end)
 
         it("creates a Service with user-specified values", function()
           local service, err, err_t = db.services:insert({
-            name            = "example_service",
-            protocol        = "http",
-            host            = "example.com",
-            port            = 443,
-            path            = "/foo",
-            connect_timeout = 10000,
-            write_timeout   = 10000,
-            read_timeout    = 10000,
-            retries         = 6,
+            name               = "example_service",
+            protocol           = "https",
+            host               = "example.com",
+            port               = 443,
+            path               = "/foo",
+            connect_timeout    = 10000,
+            write_timeout      = 10000,
+            read_timeout       = 10000,
+            retries            = 6,
+            client_certificate = { id = certificate.id },
           })
           assert.is_nil(err_t)
           assert.is_nil(err)
@@ -1056,18 +1362,19 @@ for _, strategy in helpers.each_strategy() do
           assert.is_true(utils.is_valid_uuid(service.id))
 
           assert.same({
-            id              = service.id,
-            created_at      = service.created_at,
-            updated_at      = service.updated_at,
-            name            = "example_service",
-            protocol        = "http",
-            host            = "example.com",
-            port            = 443,
-            path            = "/foo",
-            connect_timeout = 10000,
-            write_timeout   = 10000,
-            read_timeout    = 10000,
-            retries         = 6,
+            id                 = service.id,
+            created_at         = service.created_at,
+            updated_at         = service.updated_at,
+            name               = "example_service",
+            protocol           = "https",
+            host               = "example.com",
+            port               = 443,
+            path               = "/foo",
+            connect_timeout    = 10000,
+            write_timeout      = 10000,
+            read_timeout       = 10000,
+            retries            = 6,
+            client_certificate = { id = certificate.id },
           }, service)
         end)
 
@@ -1129,6 +1436,49 @@ for _, strategy in helpers.each_strategy() do
             fields   = {
               name = "my_service_name",
             }
+          }, err_t)
+        end)
+
+        it("cannot create a Service with invalid client_certificate.id", function()
+          -- insert 2
+          local service, _, err_t = db.services:insert {
+            name = "cc_test",
+            protocol = "https",
+            host = "example.com",
+            client_certificate = { id = "123e4567-e89b-12d3-a456-426655440000" },
+          }
+          assert.is_nil(service)
+          assert.same({
+            code     = Errors.codes.FOREIGN_KEY_VIOLATION,
+            message  = "the foreign key '{id=\"123e4567-e89b-12d3-a456-426655440000\"}' does not reference an existing 'certificates' entity.",
+            strategy = strategy,
+            name     = "foreign key violation",
+            fields   = {
+              client_certificate = {
+                id = "123e4567-e89b-12d3-a456-426655440000",
+              },
+            }
+          }, err_t)
+        end)
+
+        it("cannot create assign client_certificate when protocol is not https", function()
+          -- insert 2
+          local service, _, err_t = db.services:insert {
+            name = "cc_test",
+            protocol = "http",
+            host = "example.com",
+            client_certificate = { id = "123e4567-e89b-12d3-a456-426655440000" },
+          }
+          assert.is_nil(service)
+          assert.same({
+            code     = Errors.codes.SCHEMA_VIOLATION,
+            message  = "2 schema violations (failed conditional validation given value of field 'protocol'; client_certificate: value must be null)",
+            strategy = strategy,
+            name     = "schema violation",
+            fields   = {
+              ["@entity"] = { "failed conditional validation given value of field 'protocol'", },
+              client_certificate = 'value must be null',
+            },
           }, err_t)
         end)
       end)
@@ -1506,6 +1856,7 @@ for _, strategy in helpers.each_strategy() do
           protocols = { "http" },
           hosts     = { "example.com" },
           service   = service,
+          path_handling = "v1",
         }, { nulls = true })
         assert.is_nil(err_t)
         assert.is_nil(err)
@@ -1517,12 +1868,14 @@ for _, strategy in helpers.each_strategy() do
           name             = ngx.null,
           methods          = ngx.null,
           hosts            = { "example.com" },
+          headers          = ngx.null,
           paths            = ngx.null,
           snis             = ngx.null,
           sources          = ngx.null,
           destinations     = ngx.null,
           regex_priority   = 0,
           strip_path       = true,
+          path_handling    = "v1",
           preserve_host    = false,
           tags             = ngx.null,
           service          = {
@@ -1739,9 +2092,17 @@ for _, strategy in helpers.each_strategy() do
                   service = service,
                 }
               end
+
+              db.routes.pagination.page_size = 100
+              db.routes.pagination.max_page_size = 1000
             end)
 
-            it("defaults page_size = 100", function()
+            lazy_teardown(function()
+              db.routes.pagination.page_size = defaults.pagination.page_size
+              db.routes.pagination.max_page_size = defaults.pagination.max_page_size
+            end)
+
+            it("= 100", function()
               local rows, err, err_t = db.routes:page_for_service {
                 id = service.id,
               }
@@ -1924,6 +2285,48 @@ for _, strategy in helpers.each_strategy() do
               }, err_t)
             end)
           end)
+
+          describe("paging options", function()
+            lazy_setup(function()
+
+              service = bp.services:insert()
+
+              for i = 1, 10 do
+                bp.routes:insert {
+                  hosts   = { "paginate-" .. i .. ".com" },
+                  service = service,
+                }
+              end
+            end)
+
+            it("overrides the defaults", function()
+              local rows, err, err_t, offset = db.routes:page_for_service({
+                id = service.id,
+              }, nil, nil, {
+                pagination = {
+                  page_size     = 5,
+                  max_page_size = 5,
+                },
+              })
+              assert.is_nil(err_t)
+              assert.is_nil(err)
+              assert.is_not_nil(offset)
+              assert.equal(5, #rows)
+
+              rows, err, err_t, offset = db.routes:page_for_service({
+                id = service.id,
+              }, nil, offset, {
+                pagination = {
+                  page_size     = 6,
+                  max_page_size = 6,
+                }
+              })
+              assert.is_nil(err_t)
+              assert.is_nil(err)
+              assert.is_nil(offset)
+              assert.equal(5, #rows)
+            end)
+          end)
         end) -- paginates
       end) -- routes:page_for_service()
     end) -- Services and Routes association
@@ -1978,6 +2381,32 @@ for _, strategy in helpers.each_strategy() do
           assert.equal('["example.org"]', json)
           assert.equal(cjson.array_mt, getmetatable(snis))
         end)
+      end)
+    end)
+
+    describe("CA Certificates", function()
+      it("cannot create a CA Certificate with an existing cert content", function()
+        -- insert 1
+        local _, _, err_t = db.ca_certificates:insert {
+          cert = ssl_fixtures.cert_ca,
+        }
+        assert.is_nil(err_t)
+
+        -- insert 2
+        local ca, _, err_t = db.ca_certificates:insert {
+          cert = ssl_fixtures.cert_ca,
+        }
+
+        assert.is_nil(ca)
+        assert.same({
+          code     = Errors.codes.UNIQUE_VIOLATION,
+          name     = "unique constraint violation",
+          message  = "UNIQUE violation detected on '{cert=[[" .. ssl_fixtures.cert_ca .. "]]}'",
+          strategy = strategy,
+          fields   = {
+            cert = ssl_fixtures.cert_ca,
+          }
+        }, err_t)
       end)
     end)
   end) -- kong.db [strategy]

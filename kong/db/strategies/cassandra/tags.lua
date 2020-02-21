@@ -1,7 +1,9 @@
 local cassandra = require "cassandra"
 
+
 local encode_base64 = ngx.encode_base64
 local decode_base64 = ngx.decode_base64
+
 
 local new_tab
 do
@@ -26,6 +28,10 @@ local Tags = {}
 -- @tparam string tag_pk the tag value
 -- @treturn table|nil,err,offset
 function Tags:page_by_tag(tag, size, offset, options)
+  if not size then
+    size = self.connector:get_page_size(options)
+  end
+
   local opts = new_tab(0, 2)
 
   if offset then
@@ -41,7 +47,6 @@ function Tags:page_by_tag(tag, size, offset, options)
 
   opts.page_size = size
   opts.paging_state = offset
-
 
   local rows, err = self.connector:query(CQL_TAG, args, opts, "read")
   if not rows then
